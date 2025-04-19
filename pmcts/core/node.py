@@ -1,7 +1,6 @@
 import math
 import numpy as np
 from pmcts.core.mdp import ACTION_SPACE
-from pmcts.core.node import Node
 
 
 class Node:
@@ -27,7 +26,7 @@ class Node:
         self.visits = 0
         self.total_reward = 0
 
-    def select_child(self) -> Node:
+    def select_child(self):
         """
         Select a child node using UCT.
 
@@ -48,7 +47,7 @@ class Node:
 
         return best_child
 
-    def add_child(self, state: np.ndarray, action: float) -> Node:
+    def add_child(self, state: np.ndarray, action: float):
         """
         Add a child node for the given state and action.
 
