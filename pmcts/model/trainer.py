@@ -1,10 +1,11 @@
-import torch
+import mlflow
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
+import pandas as pd
 
 from dataclasses import dataclass
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
+from pmcts.model.dataset import SpreadDataset
 
 
 @dataclass
@@ -31,18 +32,18 @@ class SpreadRegressorTrainer:
     def train(
         self,
         model: nn.Module,
-        x_train: np.ndarray,
-        y_train: np.ndarray,
+        spreads: pd.DataFrame,
         verbose: bool = True,
+        mlflow_run: str = None,
     ) -> list[float]:
         """
         Trains the SpreadRegressor model using the provided training data.
 
         Args:
             model (nn.Module): The model to be trained.
-            x_train (np.ndarray): Training input data with shape (data_len, num_features).
-            y_train (np.ndarray): Training target data with shape (data_len, num_features).
+            spreads (pd.DataFrame): Training input data with shape (data_len, num_features).
             verbose (bool): If True, prints training progress every 10 epochs.
+            mlflow_run (str): The run ID of the MLflow run.
 
         Returns:
             list[float]: A list of average losses for each epoch.
@@ -51,26 +52,37 @@ class SpreadRegressorTrainer:
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=self.config.lr)
 
-        # DataLoader 생성
+        # Set MLflow
+        if mlflow_run:
+            mlflow.set_experiment(self.config.experiment)
+            mlflow.start_run(run_name=mlflow_run)
+            mlflow.log_params(self.config.__dict__)
+
+        # Create Spread Dataset
+        dataset = SpreadDataset(
+            spreads,
+            model.config.seq_len,
+            model.config.pred_len,
+            spreads.shape[1],
+        )
+        # Create DataLoader
         dataloader = DataLoader(
-            TensorDataset(x_train, y_train),
+            dataset,
             batch_size=self.config.batch_size,
             shuffle=True,
             drop_last=True,
         )
 
         losses = []
-        # 학습 루프
+        # Training Loop
         for epoch in range(self.config.epoch):
             epoch_loss = 0.0
+            processed_samples = 0
 
             # Shape: (num_windows, seq_len, num_features)
             for batch_x, batch_y in dataloader:
-                batch_x = batch_x.to(self.device)
-                batch_y = batch_y.to(self.device)
-
                 # Smoothing Learning
-                recon = model.smoothing(batch_x)
+                recon = model(batch_x)
                 loss = criterion(recon, batch_y)
 
                 # Backpropagation
@@ -79,47 +91,27 @@ class SpreadRegressorTrainer:
                 optimizer.step()
 
                 epoch_loss += loss.item()
+                processed_samples += batch_x.size(0)
+                processed_rate = 100 * int(processed_samples / len(dataset)) + 1
 
-            losses.append(epoch_loss / len(dataloader))
+                if verbose and processed_rate % 10 == 0:
+                    print(
+                        f"Epoch: {epoch + 1}/{self.config.epoch}, "
+                        f"Loss: {epoch_loss / processed_samples:.5f}, "
+                        f"Progress: {processed_samples}/{len(dataset)}"
+                    )
 
-            if verbose and (epoch + 1) % 10 == 0:
-                print(
-                    f"Epoch [{epoch + 1}/{self.config.epoch}], Loss: {losses[-1]:.5f}"
-                )
+                    if mlflow_run:
+                        mlflow.log_metrics(
+                            {
+                                "loss": loss.item(),
+                            },
+                            step=epoch,
+                        )
+
+                losses.append(epoch_loss / len(dataset))
+
+        if mlflow_run:
+            mlflow.end_run()
 
         return losses
-
-    @staticmethod
-    def prepare_tensor(train_data: np.array, model: nn.Module) -> tuple:
-        """
-        Prepares input (X) and output (y) windows for training from the given data.
-
-        Args:
-            train_data (np.array): The time series data to prepare windows from.
-            model (nn.Module): The model whose configuration is used to determine window sizes.
-
-        Returns:
-            tuple: A tuple containing two tensors, x_train and y_train, with shapes (batch_size, seq_len, num_features) and (batch_size, pred_len, num_features) respectively.
-        """
-
-        T = len(train_data)
-
-        x, y = [], []
-
-        config = model.config
-        input_size = config.seq_len
-        output_size = config.pred_len
-
-        for t in range(input_size, T - output_size):
-            # 각 윈도우 생성
-            input_window = train_data[t - input_size : t]
-            output_window = train_data[t : t + output_size]
-
-            x.append(input_window)
-            y.append(output_window)
-
-        # (batch_size, seq_len, num_features)
-        x_train = torch.tensor(np.array(x), dtype=torch.float32)
-        # (batch_size, pred_len, num_features)
-        y_train = torch.tensor(np.array(y), dtype=torch.float32)
-        return x_train, y_train
