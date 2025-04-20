@@ -92,9 +92,9 @@ class SpreadRegressorTrainer:
 
                 epoch_loss += loss.item()
                 processed_samples += batch_x.size(0)
-                processed_rate = 100 * int(processed_samples / len(dataset)) + 1
+                processed_rate = int(100 * processed_samples / len(dataset)) + 1
 
-                if verbose and processed_rate % 10 == 0:
+                if verbose and processed_rate % 5 == 0:
                     print(
                         f"Epoch: {epoch + 1}/{self.config.epoch}, "
                         f"Loss: {epoch_loss / processed_samples:.5f}, "
