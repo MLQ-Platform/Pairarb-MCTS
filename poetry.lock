@@ -1901,7 +1901,7 @@ tqdm = "4.67.1"
 type = "git"
 url = "https://github.com/MLQ-Platform/Pairarb.git"
 reference = "master"
-resolved_reference = "68d7533f70f0ee4dd99b3fecbd415abd07d21f22"
+resolved_reference = "cffe609974c3150fcec6f89d105a385db84a0431"
 
 [[package]]
 name = "pandas"
